@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Meter Log — TOD Reading Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --ink:#1C2526;
+    --ink-soft:#3A4647;
+    --paper:#F7F4ED;
+    --paper-dim:#EDE8DB;
+    --line:#D8D2C0;
+    --peak:#E8A33D;
+    --peak-dim:#FBEDD3;
+    --offpeak:#4A9B8E;
+    --offpeak-dim:#E1F1EE;
+    --normal:#6B6258;
+    --normal-dim:#EDEAE2;
+    --export:#3D7A5C;
+    --export-dim:#E3F0E9;
+    --import:#B8513A;
+    --import-dim:#F8E6E0;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    padding-bottom:40px;
+  }
+  .mono{font-family:'JetBrains Mono',monospace;}
+
+  /* ---- Header ---- */
+  header{
+    padding:28px 20px 22px;
+    background:var(--ink);
+    color:var(--paper);
+    position:relative;
+    overflow:hidden;
+  }
+  header::after{
+    content:"";
+    position:absolute;
+    right:-40px; top:-40px;
+    width:160px; height:160px;
+    border-radius:50%;
+    background:radial-gradient(circle, rgba(232,163,61,0.18), transparent 70%);
+  }
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--peak);
+    margin:0 0 6px;
+    font-weight:600;
+  }
+  h1{
+    margin:0;
+    font-size:25px;
+    font-weight:800;
+    letter-spacing:-0.01em;
+    line-height:1.15;
+  }
+  .sub{
+    margin:6px 0 0;
+    font-size:13px;
+    color:#C8C2B4;
+    font-weight:400;
+  }
+
+  /* ---- Tabs ---- */
+  .tabs{
+    display:flex;
+    margin:18px 20px 0;
+    background:var(--paper-dim);
+    border-radius:10px;
+    padding:4px;
+    gap:4px;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  .tabs::-webkit-scrollbar{ display:none; }
+  .tab{
+    flex:0 0 auto;
+    text-align:center;
+    padding:10px 14px;
+    font-size:12.5px;
+    font-weight:600;
+    border-radius:7px;
+    cursor:pointer;
+    color:var(--ink-soft);
+    user-select:none;
+    transition:background .15s, color .15s;
+    white-space:nowrap;
+  }
+  .tab.active{ background:var(--ink); color:var(--paper); }
+
+  main{ padding:18px 20px 0; max-width:560px; margin:0 auto; }
+  section{ display:none; }
+  section.active{ display:block; }
+
+  /* ---- Card ---- */
+  .card{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:18px;
+    margin-bottom:16px;
+  }
+  .card-title{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.1em;
+    font-weight:700;
+    color:var(--ink-soft);
+    margin:0 0 14px;
+    font-family:'JetBrains Mono',monospace;
+  }
+
+  /* ---- Date row ---- */
+  .date-row{ display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+  .date-row input[type=date]{
+    flex:1;
+    font-family:'JetBrains Mono',monospace;
+    font-size:15px;
+    padding:11px 12px;
+    border:1px solid var(--line);
+    border-radius:9px;
+    background:var(--paper);
+    color:var(--ink);
+  }
+
+  /* ---- Register grid: mimics meter display cycling through slots ---- */
+  .reg-group{ margin-bottom:14px; }
+  .reg-group-label{
+    display:flex; align-items:center; gap:8px;
+    font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em;
+    margin-bottom:8px;
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .dot.import{ background:var(--import); }
+  .dot.export{ background:var(--export); }
+
+  .reg-row{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .reg-cell{
+    border-radius:10px;
+    padding:10px 8px 9px;
+    border:1px solid var(--line);
+  }
+  .reg-cell.normal{ background:var(--normal-dim); }
+  .reg-cell.peak{ background:var(--peak-dim); }
+  .reg-cell.offpeak{ background:var(--offpeak-dim); }
+  .reg-cell-label{
+    font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
+    margin-bottom:5px; opacity:0.75;
+  }
+  .reg-cell input{
+    width:100%;
+    border:none;
+    background:transparent;
+    font-family:'JetBrains Mono',monospace;
+    font-size:16px;
+    font-weight:600;
+    color:var(--ink);
+    padding:0;
+    outline:none;
+  }
+  .reg-cell input::placeholder{ color:#B5AFA0; font-weight:400; }
+
+  /* ---- Buttons ---- */
+  .btn{
+    display:block;
+    width:100%;
+    text-align:center;
+    padding:14px;
+    border-radius:10px;
+    border:none;
+    font-family:'Inter',sans-serif;
+    font-size:15px;
+    font-weight:700;
+    cursor:pointer;
+    margin-top:6px;
+  }
+  .btn-primary{ background:var(--ink); color:var(--paper); }
+  .btn-primary:active{ background:var(--ink-soft); }
+  .btn-ghost{ background:transparent; color:var(--ink-soft); border:1px solid var(--line); }
+  .btn-danger-ghost{ background:transparent; color:var(--import); border:1px solid var(--import); }
+
+  .hint{ font-size:12px; color:var(--ink-soft); margin:8px 2px 0; line-height:1.5; }
+  .err{ font-size:12.5px; color:var(--import); margin:8px 2px 0; font-weight:600; display:none; }
+
+  /* ---- Entry list ---- */
+  .entry{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:14px 16px;
+    margin-bottom:10px;
+  }
+  .entry-head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-bottom:10px;
+  }
+  .entry-date{ font-family:'JetBrains Mono',monospace; font-weight:700; font-size:14px; }
+  .entry-net{ font-size:12px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .entry-net.credit{ color:var(--export); }
+  .entry-net.debit{ color:var(--import); }
+  .entry-body{ display:flex; flex-direction:column; gap:6px; }
+  .entry-line{ display:flex; justify-content:space-between; font-size:12.5px; }
+  .entry-line .lbl{ color:var(--ink-soft); }
+  .entry-line .val{ font-family:'JetBrains Mono',monospace; font-weight:600; }
+  .entry-actions{ display:flex; gap:8px; margin-top:10px; }
+  .entry-actions button{
+    flex:1; padding:8px; font-size:11.5px; font-weight:700;
+    border-radius:7px; border:1px solid var(--line); background:var(--paper); cursor:pointer;
+  }
+  .entry-actions .del{ color:var(--import); border-color:var(--import-dim); }
+
+  .empty{
+    text-align:center; padding:50px 20px; color:var(--ink-soft);
+  }
+  .empty .big{ font-size:34px; margin-bottom:8px; }
+  .empty p{ font-size:13.5px; line-height:1.6; margin:4px 0 0; }
+
+  /* ---- Summary ---- */
+  .stat-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+  .stat{
+    background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px;
+  }
+  .stat-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-soft); font-weight:700; margin-bottom:6px; }
+  .stat-val{ font-family:'JetBrains Mono',monospace; font-size:20px; font-weight:700; }
+  .stat-val.export{ color:var(--export); }
+  .stat-val.import{ color:var(--import); }
+
+  .slot-bar-row{ margin-bottom:12px; }
+  .slot-bar-label{ display:flex; justify-content:space-between; font-size:12px; font-weight:600; margin-bottom:5px; }
+  .slot-bar-track{ height:8px; background:var(--paper-dim); border-radius:5px; overflow:hidden; display:flex; }
+  .slot-bar-fill{ height:100%; }
+
+  footer{ text-align:center; padding:22px 20px 6px; font-size:11px; color:#A39D8E; font-family:'JetBrains Mono',monospace; }
+
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--ink); color:var(--paper); padding:11px 20px; border-radius:30px;
+    font-size:13px; font-weight:600; opacity:0; transition:opacity .25s, transform .25s;
+    pointer-events:none; white-space:nowrap; z-index:50;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="eyebrow">⚡ Net-Metered Solar · KSEB</p>
+  <h1>Meter Log</h1>
+  <p class="sub">Track Normal / Peak / Off-Peak import & export readings</p>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-tab="entry">New Entry</div>
+  <div class="tab" data-tab="history">History</div>
+  <div class="tab" data-tab="summary">Summary</div>
+  <div class="tab" data-tab="rates">Rates</div>
+  <div class="tab" data-tab="setup">Setup</div>
+</div>
+
+<main style="padding-bottom:0;">
+  <div class="card" id="connBanner" style="display:none; margin:18px 20px 0; border-color:var(--offpeak-dim); background:var(--offpeak-dim);">
+    <p style="margin:0; font-size:13px; font-weight:600; color:var(--ink-soft);">💾 Saving locally on this device. Set up the <strong>Setup</strong> tab when you're ready to sync across devices.</p>
+  </div>
+</main>
+
+<main>
+
+  <!-- ENTRY -->
+  <section id="entry" class="active">
+    <div class="card">
+      <p class="card-title">Reading Date</p>
+      <div class="date-row">
+        <input type="date" id="entryDate">
+      </div>
+      <p class="hint" id="prefillHint" style="margin:0 0 16px;"></p>
+
+      <div class="reg-group">
+        <div class="reg-group-label"><span class="dot import"></span>Import (from grid) · kWh</div>
+        <div class="reg-row">
+          <div class="reg-cell normal">
+            <div class="reg-cell-label">Normal</div>
+            <input type="number" inputmode="decimal" step="0.1" placeholder="0.0" id="imp_normal">
+          </div>
+          <div class="reg-cell peak">
+            <div class="reg-cell-label">Peak</div>
+            <input type="number" inputmode="decimal" step="0.1" placeholder="0.0" id="imp_peak">
+          </div>
+          <div class="reg-cell offpeak">
+            <div class="reg-cell-label">Off-Peak</div>
+            <input type="number" inputmode="decimal" step="0.1" placeholder="0.0" id="imp_offpeak">
+          </div>
+        </div>
+      </div>
+
+      <div class="reg-group">
+        <div class="reg-group-label"><span class="dot export"></span>Export (solar to grid) · kWh</div>
+        <div class="reg-row">
+          <div class="reg-cell normal">
+            <div class="reg-cell-label">Normal</div>
+            <input type="number" inputmode="decimal" step="0.1" placeholder="0.0" id="exp_normal">
+          </div>
+          <div class="reg-cell peak">
+            <div class="reg-cell-label">Peak</div>
+            <input type="number" inputmode="decimal" step="0.1" placeholder="0.0" id="exp_peak">
+          </div>
+          <div class="reg-cell offpeak">
+            <div class="reg-cell-label">Off-Peak</div>
+            <input type="number" inputmode="decimal" step="0.1" placeholder="0.0" id="exp_offpeak">
+          </div>
+        </div>
+      </div>
+
+      <p class="hint">Enter the <strong>cumulative</strong> reading shown on your meter display for each register — same as your meter shows when it cycles through screens. The app works out the usage since your last entry automatically.</p>
+
+      <div class="reg-group" style="margin-top:4px;">
+        <div class="reg-group-label"><span class="dot" style="background:var(--ink-soft);"></span>Overall Net (KSEB meter) · kWh</div>
+        <div class="reg-row" style="grid-template-columns:1fr;">
+          <div class="reg-cell" style="background:var(--paper-dim);">
+            <div class="reg-cell-label">Net Import / Export reading</div>
+            <input type="number" inputmode="decimal" step="0.1" placeholder="0.0" id="net_reading">
+          </div>
+        </div>
+        <p class="hint" style="margin-top:8px;">The single cumulative net figure your meter shows — not split by TOD slot.</p>
+      </div>
+
+      <div class="reg-group">
+        <div class="reg-group-label"><span class="dot" style="background:var(--export);"></span>Solar Generation Meter · kWh</div>
+        <div class="reg-row" style="grid-template-columns:1fr;">
+          <div class="reg-cell" style="background:var(--export-dim);">
+            <div class="reg-cell-label">Cumulative generation reading</div>
+            <input type="number" inputmode="decimal" step="0.1" placeholder="0.0" id="gen_reading">
+          </div>
+        </div>
+        <p class="hint" style="margin-top:8px;">From your separate inverter/generation meter, not the KSEB meter.</p>
+      </div>
+
+      <p class="err" id="formErr"></p>
+      <button class="btn btn-primary" id="saveBtn">Save Reading</button>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="history">
+    <div id="historyList"></div>
+  </section>
+
+  <!-- SUMMARY -->
+  <section id="summary">
+    <div class="card">
+      <p class="card-title">Billing Period</p>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <div style="flex:1;">
+          <p style="font-size:11px; font-weight:700; color:var(--ink-soft); margin:0 0 5px;">From</p>
+          <input type="date" id="rangeStart" style="width:100%; font-family:'JetBrains Mono',monospace; font-size:13px; padding:10px 10px; border:1px solid var(--line); border-radius:9px; background:var(--paper);">
+        </div>
+        <div style="flex:1;">
+          <p style="font-size:11px; font-weight:700; color:var(--ink-soft); margin:0 0 5px;">To</p>
+          <input type="date" id="rangeEnd" style="width:100%; font-family:'JetBrains Mono',monospace; font-size:13px; padding:10px 10px; border:1px solid var(--line); border-radius:9px; background:var(--paper);">
+        </div>
+      </div>
+      <p class="hint" id="rangeHint" style="margin-top:10px;"></p>
+    </div>
+    <div id="summaryContent"></div>
+  </section>
+
+  <!-- RATES -->
+  <section id="rates">
+    <div class="card">
+      <p class="card-title">Billing Model</p>
+      <p class="hint" style="margin-top:0;">Choose how Summary calculates your bill. Switching doesn't delete the other model's rates — flip back any time.</p>
+      <div class="tabs" style="margin:14px 0 0;">
+        <div class="tab active" id="modelTodBtn" style="flex:1;">TOD Rates</div>
+        <div class="tab" id="modelSlabBtn" style="flex:1;">Slab Rates</div>
+      </div>
+    </div>
+
+    <div id="todRatesSection">
+    <div class="card">
+      <p class="card-title">Import Tariff (₹ per unit, TOD)</p>
+      <p class="hint" style="margin-top:0;">What KSEB charges you per kWh drawn from the grid, by slot.</p>
+      <div class="reg-row" style="margin-top:14px;">
+        <div class="reg-cell normal">
+          <div class="reg-cell-label">Normal</div>
+          <input type="number" inputmode="decimal" step="0.01" placeholder="0.00" id="rate_normal">
+        </div>
+        <div class="reg-cell peak">
+          <div class="reg-cell-label">Peak</div>
+          <input type="number" inputmode="decimal" step="0.01" placeholder="0.00" id="rate_peak">
+        </div>
+        <div class="reg-cell offpeak">
+          <div class="reg-cell-label">Off-Peak</div>
+          <input type="number" inputmode="decimal" step="0.01" placeholder="0.00" id="rate_offpeak">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title">Export Rate (₹ per unit, flat)</p>
+      <p class="hint" style="margin-top:0;">What KSEB credits you per kWh exported to the grid — a single flat rate, same across all TOD slots.</p>
+      <div class="reg-row" style="grid-template-columns:1fr; margin-top:14px;">
+        <div class="reg-cell" style="background:var(--export-dim);">
+          <div class="reg-cell-label">Export rate</div>
+          <input type="number" inputmode="decimal" step="0.01" placeholder="0.00" id="rate_export">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title">Offset Multiplier (export units needed per import unit)</p>
+      <p class="hint" style="margin-top:0;">Normal export offsets Normal import 1:1 first. Any leftover export then offsets Peak import, then Off-Peak — each at its own exchange rate. E.g. 1.25 for Peak means 1.25 units of leftover export are needed to cancel 1 unit of Peak import.</p>
+      <div class="reg-row" style="margin-top:14px;">
+        <div class="reg-cell normal">
+          <div class="reg-cell-label">Normal (fixed)</div>
+          <input type="number" value="1.00" id="mult_normal" disabled style="opacity:0.6;">
+        </div>
+        <div class="reg-cell peak">
+          <div class="reg-cell-label">Peak</div>
+          <input type="number" inputmode="decimal" step="0.01" placeholder="1.25" id="mult_peak">
+        </div>
+        <div class="reg-cell offpeak">
+          <div class="reg-cell-label">Off-Peak</div>
+          <input type="number" inputmode="decimal" step="0.01" placeholder="0.90" id="mult_offpeak">
+        </div>
+      </div>
+      <p class="err" id="rateErr"></p>
+      <button class="btn btn-primary" id="saveRatesBtn">Save Rates</button>
+      <p class="hint" id="rateStatus"></p>
+      <p class="hint" style="margin-top:14px;">KSEB tariffs are revised periodically — if yours changes, just update these and future Summary calculations will use the new rates. Past savings already shown won't be retroactively corrected since the app doesn't track rate history yet.</p>
+    </div>
+    </div>
+
+    <div id="slabRatesSection" style="display:none;">
+      <div class="card">
+        <p class="card-title">Non-Telescopic Slab Table</p>
+        <p class="hint" style="margin-top:0;">Net consumption (import − export) is matched to the band it falls into, then your ENTIRE net consumption is billed at that one rate — not progressively blended.</p>
+        <div id="slabRows" style="margin-top:14px; display:flex; flex-direction:column; gap:10px;"></div>
+        <button class="btn btn-ghost" id="addSlabBtn" style="margin-top:10px;">+ Add Slab Band</button>
+        <p class="err" id="slabErr"></p>
+        <button class="btn btn-primary" id="saveSlabsBtn">Save Slab Table</button>
+        <p class="hint" id="slabStatus"></p>
+      </div>
+      <div class="card">
+        <p class="card-title">Export Rate (₹ per unit, flat)</p>
+        <p class="hint" style="margin-top:0;">Credited on export, banked or paid out per KSEB's net billing rules — used for any leftover after netting against import.</p>
+        <div class="reg-row" style="grid-template-columns:1fr; margin-top:14px;">
+          <div class="reg-cell" style="background:var(--export-dim);">
+            <div class="reg-cell-label">Export rate</div>
+            <input type="number" inputmode="decimal" step="0.01" placeholder="3.26" id="slab_export_rate">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETUP -->
+  <section id="setup">
+    <div class="card">
+      <p class="card-title">Connect Shared Database</p>
+      <p class="hint" style="margin-top:0;">Paste your Supabase project details below. Do this once per device/browser (family members do this on their own phones too — same two values for everyone).</p>
+      <p style="font-size:12px; font-weight:700; margin:14px 0 6px;">Project URL</p>
+      <div class="date-row">
+        <input type="text" id="cfgUrl" placeholder="https://xxxxx.supabase.co" style="font-family:'JetBrains Mono',monospace; font-size:13px; flex:1; padding:11px 12px; border:1px solid var(--line); border-radius:9px; background:var(--paper);">
+      </div>
+      <p style="font-size:12px; font-weight:700; margin:14px 0 6px;">Anon / Public Key</p>
+      <div class="date-row">
+        <input type="text" id="cfgKey" placeholder="eyJhbGciOi..." style="font-family:'JetBrains Mono',monospace; font-size:13px; flex:1; padding:11px 12px; border:1px solid var(--line); border-radius:9px; background:var(--paper);">
+      </div>
+      <p class="err" id="setupErr"></p>
+      <button class="btn btn-primary" id="saveCfgBtn">Save & Connect</button>
+      <p class="hint" id="connStatus"></p>
+    </div>
+  </section>
+
+</main>
+
+<footer id="footerStatus">LOGGED LOCALLY ON THIS DEVICE</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+const CFG_KEY = 'kseb_supabase_cfg';
+let entries = [];
+let sb = null; // supabase client
+
+const $ = id => document.getElementById(id);
+
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function showToast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+// ---------- Config (Supabase URL/key) ----------
+const LOCAL_ENTRIES_KEY = 'kseb_meter_readings_local';
+
+function loadConfig(){
+  try{
+    const raw = localStorage.getItem(CFG_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+
+function saveConfig(url, key){
+  localStorage.setItem(CFG_KEY, JSON.stringify({url, key}));
+}
+
+function loadLocalEntries(){
+  try{
+    const raw = localStorage.getItem(LOCAL_ENTRIES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){ return []; }
+}
+
+function saveLocalEntries(list){
+  try{
+    localStorage.setItem(LOCAL_ENTRIES_KEY, JSON.stringify(list));
+    return true;
+  }catch(e){ return false; }
+}
+
+// ---------- Rates (₹ per unit, TOD) — synced like readings: local fallback, Supabase when connected ----------
+const RATES_KEY = 'kseb_tod_rates';
+
+function loadLocalRates(){
+  try{
+    const raw = localStorage.getItem(RATES_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+
+function saveLocalRates(rates){
+  try{
+    localStorage.setItem(RATES_KEY, JSON.stringify(rates));
+    return true;
+  }catch(e){ return false; }
+}
+
+async function loadRates(){
+  if(!sb) return loadLocalRates();
+  const { data, error } = await sb.from('rates').select('*').eq('id', 1).maybeSingle();
+  if(error || !data) return null;
+  return {
+    normal: Number(data.normal), peak: Number(data.peak), offpeak: Number(data.offpeak),
+    export: Number(data.export_rate),
+    mult_peak: Number(data.mult_peak), mult_offpeak: Number(data.mult_offpeak),
+  };
+}
+
+// Merge-upsert helper: reads the existing rates row (if any) and merges in
+// only the given fields, so saving TOD rates / slabs / model independently
+// never wipes out the other settings stored in the same shared row.
+async function mergeUpsertRatesRow(patch){
+  const { data: existing } = await sb.from('rates').select('*').eq('id', 1).maybeSingle();
+  const merged = { ...(existing || {}), ...patch, id: 1 };
+  const { error } = await sb.from('rates').upsert(merged);
+  if(error) throw error;
+}
+
+async function saveRatesData(rates){
+  if(!sb){
+    if(!saveLocalRates(rates)) throw new Error('local storage write failed');
+    return;
+  }
+  await mergeUpsertRatesRow({
+    normal: rates.normal, peak: rates.peak, offpeak: rates.offpeak,
+    export_rate: rates.export,
+    mult_peak: rates.mult_peak, mult_offpeak: rates.mult_offpeak,
+  });
+}
+
+async function populateRatesForm(){
+  const r = await loadRates();
+  if(r){
+    $('rate_normal').value = r.normal ?? '';
+    $('rate_peak').value = r.peak ?? '';
+    $('rate_offpeak').value = r.offpeak ?? '';
+    $('rate_export').value = r.export ?? '';
+    $('mult_peak').value = r.mult_peak ?? '';
+    $('mult_offpeak').value = r.mult_offpeak ?? '';
+    $('rateStatus').textContent = sb ? '✓ Rates saved — synced across devices.' : '✓ Rates saved on this device.';
+    $('rateStatus').style.color = 'var(--export)';
+  } else {
+    $('rateStatus').textContent = '';
+    if($('rate_export').value === '') $('rate_export').value = '3.26';
+    if($('mult_peak').value === '') $('mult_peak').value = '1.25';
+    if($('mult_offpeak').value === '') $('mult_offpeak').value = '0.90';
+  }
+}
+
+$('saveRatesBtn').addEventListener('click', async ()=>{
+  const errEl = $('rateErr');
+  errEl.style.display = 'none';
+  const fields = ['rate_normal','rate_peak','rate_offpeak','rate_export','mult_peak','mult_offpeak'];
+  const vals = {};
+  for(const f of fields){
+    const raw = $(f).value;
+    if(raw === ''){ errEl.textContent = 'Enter all rates and offset multipliers.'; errEl.style.display='block'; return; }
+    const n = parseFloat(raw);
+    if(isNaN(n) || n < 0){ errEl.textContent = 'Values must be valid, non-negative numbers.'; errEl.style.display='block'; return; }
+    vals[f.replace('rate_','')] = n;
+  }
+  try{
+    $('saveRatesBtn').textContent = 'Saving…';
+    $('saveRatesBtn').disabled = true;
+    await saveRatesData(vals);
+    $('rateStatus').textContent = sb ? '✓ Rates saved — synced across devices.' : '✓ Rates saved on this device.';
+    $('rateStatus').style.color = 'var(--export)';
+    showToast('Rates saved');
+  }catch(e){
+    errEl.textContent = 'Could not save rates — check your connection.';
+    errEl.style.display = 'block';
+  }finally{
+    $('saveRatesBtn').textContent = 'Save Rates';
+    $('saveRatesBtn').disabled = false;
+  }
+});
+
+// ---------- Billing Model (TOD vs Slab) ----------
+const MODEL_KEY = 'kseb_billing_model';
+
+function loadLocalModel(){
+  try{ return localStorage.getItem(MODEL_KEY) || 'tod'; }catch(e){ return 'tod'; }
+}
+function saveLocalModel(model){
+  try{ localStorage.setItem(MODEL_KEY, model); return true; }catch(e){ return false; }
+}
+async function loadModel(){
+  if(!sb) return loadLocalModel();
+  const { data, error } = await sb.from('rates').select('billing_model').eq('id', 1).maybeSingle();
+  if(error || !data || !data.billing_model) return 'tod';
+  return data.billing_model;
+}
+async function saveModel(model){
+  if(!sb){ saveLocalModel(model); return; }
+  await mergeUpsertRatesRow({ billing_model: model });
+}
+
+function setModelUI(model){
+  $('modelTodBtn').classList.toggle('active', model === 'tod');
+  $('modelSlabBtn').classList.toggle('active', model === 'slab');
+  $('todRatesSection').style.display = model === 'tod' ? '' : 'none';
+  $('slabRatesSection').style.display = model === 'slab' ? '' : 'none';
+}
+
+$('modelTodBtn').addEventListener('click', async ()=>{
+  setModelUI('tod');
+  try{ await saveModel('tod'); }catch(e){ showToast('Could not save model — check connection'); }
+});
+$('modelSlabBtn').addEventListener('click', async ()=>{
+  setModelUI('slab');
+  try{ await saveModel('slab'); }catch(e){ showToast('Could not save model — check connection'); }
+});
+
+// ---------- Slab Rates (non-telescopic) ----------
+const SLABS_KEY = 'kseb_slab_rates';
+
+function loadLocalSlabs(){
+  try{
+    const raw = localStorage.getItem(SLABS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function saveLocalSlabs(data){
+  try{ localStorage.setItem(SLABS_KEY, JSON.stringify(data)); return true; }catch(e){ return false; }
+}
+async function loadSlabs(){
+  if(!sb) return loadLocalSlabs();
+  const { data, error } = await sb.from('rates').select('slab_table, slab_export_rate').eq('id', 1).maybeSingle();
+  if(error || !data || !data.slab_table) return null;
+  return { bands: data.slab_table, exportRate: Number(data.slab_export_rate ?? 3.26) };
+}
+async function saveSlabsData(payload){
+  if(!sb){
+    if(!saveLocalSlabs(payload)) throw new Error('local storage write failed');
+    return;
+  }
+  await mergeUpsertRatesRow({
+    slab_table: payload.bands,
+    slab_export_rate: payload.exportRate,
+  });
+}
+
+let slabRowCount = 0;
+function addSlabRow(from='', to='', rate=''){
+  const rowId = 'slabrow_' + (slabRowCount++);
+  const div = document.createElement('div');
+  div.id = rowId;
+  div.style.cssText = 'display:flex; gap:8px; align-items:center;';
+  div.innerHTML = `
+    <input type="number" inputmode="decimal" placeholder="From" value="${from}" style="flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:13px; padding:9px 8px; border:1px solid var(--line); border-radius:8px; background:var(--paper);" class="slab-from">
+    <span style="color:var(--ink-soft); font-size:12px;">–</span>
+    <input type="number" inputmode="decimal" placeholder="To" value="${to}" style="flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:13px; padding:9px 8px; border:1px solid var(--line); border-radius:8px; background:var(--paper);" class="slab-to">
+    <span style="color:var(--ink-soft); font-size:12px;">@₹</span>
+    <input type="number" inputmode="decimal" step="0.01" placeholder="Rate" value="${rate}" style="flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:13px; padding:9px 8px; border:1px solid var(--line); border-radius:8px; background:var(--paper);" class="slab-rate">
+    <button type="button" style="flex:0 0 auto; background:none; border:none; color:var(--import); font-size:18px; cursor:pointer; padding:4px 8px;" class="slab-remove">×</button>
+  `;
+  div.querySelector('.slab-remove').addEventListener('click', ()=> div.remove());
+  $('slabRows').appendChild(div);
+}
+
+$('addSlabBtn').addEventListener('click', ()=> addSlabRow());
+
+function readSlabRowsFromForm(){
+  const rows = Array.from($('slabRows').children);
+  return rows.map(row=>({
+    from: parseFloat(row.querySelector('.slab-from').value),
+    to: parseFloat(row.querySelector('.slab-to').value),
+    rate: parseFloat(row.querySelector('.slab-rate').value),
+  }));
+}
+
+async function populateSlabsForm(){
+  $('slabRows').innerHTML = '';
+  const saved = await loadSlabs();
+  if(saved && saved.bands && saved.bands.length > 0){
+    saved.bands.forEach(b=> addSlabRow(b.from, b.to, b.rate));
+    $('slab_export_rate').value = saved.exportRate ?? 3.26;
+    $('slabStatus').textContent = sb ? '✓ Slabs saved — synced across devices.' : '✓ Slabs saved on this device.';
+    $('slabStatus').style.color = 'var(--export)';
+  } else {
+    // Seed with the one band the user has confirmed so far
+    addSlabRow(301, 350, 7.20);
+    if($('slab_export_rate').value === '') $('slab_export_rate').value = '3.26';
+    $('slabStatus').textContent = '';
+  }
+}
+
+$('saveSlabsBtn').addEventListener('click', async ()=>{
+  const errEl = $('slabErr');
+  errEl.style.display = 'none';
+  const bands = readSlabRowsFromForm();
+  const exportRate = parseFloat($('slab_export_rate').value);
+
+  if(bands.length === 0){
+    errEl.textContent = 'Add at least one slab band.';
+    errEl.style.display = 'block';
+    return;
+  }
+  for(const b of bands){
+    if(isNaN(b.from) || isNaN(b.to) || isNaN(b.rate) || b.from < 0 || b.to <= b.from || b.rate < 0){
+      errEl.textContent = 'Each band needs a valid From < To and a non-negative rate.';
+      errEl.style.display = 'block';
+      return;
+    }
+  }
+  if(isNaN(exportRate) || exportRate < 0){
+    errEl.textContent = 'Enter a valid export rate.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  bands.sort((a,b)=> a.from - b.from);
+
+  try{
+    $('saveSlabsBtn').textContent = 'Saving…';
+    $('saveSlabsBtn').disabled = true;
+    await saveSlabsData({ bands, exportRate });
+    $('slabStatus').textContent = sb ? '✓ Slabs saved — synced across devices.' : '✓ Slabs saved on this device.';
+    $('slabStatus').style.color = 'var(--export)';
+    showToast('Slab table saved');
+  }catch(e){
+    errEl.textContent = 'Could not save — check your connection.';
+    errEl.style.display = 'block';
+  }finally{
+    $('saveSlabsBtn').textContent = 'Save Slab Table';
+    $('saveSlabsBtn').disabled = false;
+  }
+});
+
+function initClient(){
+  const cfg = loadConfig();
+  if(cfg && cfg.url && cfg.key){
+    try{
+      sb = supabase.createClient(cfg.url, cfg.key);
+      $('cfgUrl').value = cfg.url;
+      $('cfgKey').value = cfg.key;
+      $('connBanner').style.display = 'none';
+      $('connStatus').textContent = '✓ Connected';
+      $('connStatus').style.color = 'var(--export)';
+      $('footerStatus').textContent = 'SYNCED ACROSS DEVICES';
+      return true;
+    }catch(e){
+      sb = null;
+    }
+  }
+  $('connBanner').style.display = 'block';
+  $('footerStatus').textContent = 'LOGGED LOCALLY ON THIS DEVICE';
+  return false;
+}
+
+$('saveCfgBtn').addEventListener('click', async ()=>{
+  const url = $('cfgUrl').value.trim();
+  const key = $('cfgKey').value.trim();
+  const errEl = $('setupErr');
+  errEl.style.display = 'none';
+  if(!url || !key){
+    errEl.textContent = 'Both fields are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  saveConfig(url, key);
+  const ok = initClient();
+  if(ok){
+    const local = loadLocalEntries();
+    if(local.length > 0){
+      showToast(`Connected — migrating ${local.length} local reading(s)…`);
+      let migrated = 0, skipped = 0;
+      for(const e of local){
+        try{
+          await sb.from('readings').insert({
+            reading_date: e.date,
+            imp_normal: e.imp_normal, imp_peak: e.imp_peak, imp_offpeak: e.imp_offpeak,
+            exp_normal: e.exp_normal, exp_peak: e.exp_peak, exp_offpeak: e.exp_offpeak,
+            net_reading: e.net_reading ?? 0, gen_reading: e.gen_reading ?? 0,
+          });
+          migrated++;
+        }catch(err){ skipped++; }
+      }
+      saveLocalEntries([]); // clear local copy now that it's migrated
+      showToast(`Migrated ${migrated} reading(s)${skipped? `, ${skipped} skipped (duplicate dates)`:''}`);
+    } else {
+      showToast('Connected — loading shared data…');
+    }
+
+    // Migrate locally-saved rates too, but only if no shared rates exist yet —
+    // don't clobber rates another family member may have already synced.
+    const localRates = loadLocalRates();
+    if(localRates){
+      const existingSharedRates = await loadRates();
+      if(!existingSharedRates){
+        try{
+          await saveRatesData(localRates);
+          showToast('Synced your saved rates too');
+        }catch(err){ /* non-fatal — rates can be re-entered in Rates tab */ }
+      }
+    }
+
+    await loadEntries();
+    renderHistory();
+  } else {
+    errEl.textContent = 'Could not connect — check the URL and key.';
+    errEl.style.display = 'block';
+  }
+});
+
+// ---------- Data layer (local storage OR Supabase) ----------
+async function loadEntries(){
+  if(!sb){
+    entries = loadLocalEntries();
+    entries.sort((a,b)=> a.date.localeCompare(b.date));
+    return;
+  }
+  const { data, error } = await sb.from('readings').select('*').order('reading_date', { ascending:true });
+  if(error){
+    showToast('Could not load readings');
+    entries = [];
+    return;
+  }
+  entries = (data||[]).map(r=>({
+    id: r.id,
+    date: r.reading_date,
+    imp_normal: Number(r.imp_normal),
+    imp_peak: Number(r.imp_peak),
+    imp_offpeak: Number(r.imp_offpeak),
+    exp_normal: Number(r.exp_normal),
+    exp_peak: Number(r.exp_peak),
+    exp_offpeak: Number(r.exp_offpeak),
+    net_reading: Number(r.net_reading),
+    gen_reading: Number(r.gen_reading),
+  }));
+}
+
+async function insertEntry(entry){
+  if(!sb){
+    const list = loadLocalEntries();
+    const newEntry = { id: Date.now().toString(36), ...entry };
+    list.push(newEntry);
+    if(!saveLocalEntries(list)) throw new Error('local storage write failed');
+    return newEntry;
+  }
+  const { data, error } = await sb.from('readings').insert({
+    reading_date: entry.date,
+    imp_normal: entry.imp_normal,
+    imp_peak: entry.imp_peak,
+    imp_offpeak: entry.imp_offpeak,
+    exp_normal: entry.exp_normal,
+    exp_peak: entry.exp_peak,
+    exp_offpeak: entry.exp_offpeak,
+    net_reading: entry.net_reading,
+    gen_reading: entry.gen_reading,
+  }).select();
+  if(error) throw error;
+  return data[0];
+}
+
+async function deleteEntry(id){
+  if(!sb){
+    const list = loadLocalEntries().filter(e=>e.id !== id);
+    if(!saveLocalEntries(list)) throw new Error('local storage write failed');
+    return;
+  }
+  const { error } = await sb.from('readings').delete().eq('id', id);
+  if(error) throw error;
+}
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', async ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('main section').forEach(s=>s.classList.remove('active'));
+    tab.classList.add('active');
+    $(tab.dataset.tab).classList.add('active');
+    if(tab.dataset.tab === 'entry'){
+      await loadEntries();
+      prefillEntryForm();
+    }
+    if(tab.dataset.tab === 'history'){
+      await loadEntries();
+      renderHistory();
+    }
+    if(tab.dataset.tab === 'summary'){
+      await loadEntries();
+      renderSummary();
+    }
+    if(tab.dataset.tab === 'rates'){
+      const model = await loadModel();
+      setModelUI(model);
+      await populateRatesForm();
+      await populateSlabsForm();
+    }
+  });
+});
+
+// ---------- Save entry ----------
+$('entryDate').value = todayStr();
+
+const ENTRY_FIELDS = ['imp_normal','imp_peak','imp_offpeak','exp_normal','exp_peak','exp_offpeak','net_reading','gen_reading'];
+
+function markPrefilled(id, isPrefilled){
+  const el = $(id);
+  if(isPrefilled){
+    el.dataset.prefilled = '1';
+    el.style.color = 'var(--ink-soft)';
+  } else {
+    delete el.dataset.prefilled;
+    el.style.color = 'var(--ink)';
+  }
+}
+
+function prefillEntryForm(){
+  if(entries.length === 0){
+    $('prefillHint').textContent = '';
+    return;
+  }
+  const latest = entries[entries.length-1];
+  ENTRY_FIELDS.forEach(f=>{
+    // Only prefill if the field is currently empty, so we never clobber in-progress typing
+    if($(f).value === ''){
+      $(f).value = latest[f] ?? 0;
+      markPrefilled(f, true);
+    }
+  });
+  $('prefillHint').innerHTML = `Pre-filled with your <strong>${formatDate(latest.date)}</strong> reading — greyed-out values haven't been edited yet. Update each field to today's actual reading before saving.`;
+}
+
+// Clear the "prefilled" visual state the moment a user actually edits a field
+ENTRY_FIELDS.forEach(f=>{
+  $(f).addEventListener('input', ()=> markPrefilled(f, false));
+});
+
+$('saveBtn').addEventListener('click', async ()=>{
+  const errEl = $('formErr');
+  errEl.style.display = 'none';
+
+  const date = $('entryDate').value;
+  if(!date){ errEl.textContent = 'Pick a date for this reading.'; errEl.style.display='block'; return; }
+
+  const fields = ENTRY_FIELDS;
+  const vals = {};
+  for(const f of fields){
+    const raw = $(f).value;
+    if(raw === ''){ errEl.textContent = 'Fill in all readings (use 0 if a register reads zero).'; errEl.style.display='block'; return; }
+    const n = parseFloat(raw);
+    const allowNegative = (f === 'net_reading');
+    if(isNaN(n) || (!allowNegative && n < 0)){ errEl.textContent = 'Readings must be valid numbers' + (allowNegative ? '.' : ' (non-negative).'); errEl.style.display='block'; return; }
+    vals[f] = n;
+  }
+
+  await loadEntries();
+  if(entries.some(e=>e.date === date)){
+    errEl.textContent = 'A reading for this date already exists — delete it in History first to re-enter.';
+    errEl.style.display='block';
+    return;
+  }
+
+  const allStillPrefilled = fields.every(f => $(f).dataset.prefilled === '1');
+  if(allStillPrefilled && entries.length > 0){
+    errEl.textContent = 'None of the readings look updated from last time — check your meter and edit the values before saving.';
+    errEl.style.display='block';
+    return;
+  }
+
+  try{
+    $('saveBtn').textContent = 'Saving…';
+    $('saveBtn').disabled = true;
+    await insertEntry({ date, ...vals });
+    await loadEntries();
+    fields.forEach(f=>{ $(f).value = ''; markPrefilled(f, false); });
+    $('entryDate').value = todayStr();
+    prefillEntryForm();
+    showToast('Reading saved for ' + formatDate(date));
+  }catch(e){
+    errEl.textContent = 'Could not save — check your connection.';
+    errEl.style.display = 'block';
+  }finally{
+    $('saveBtn').textContent = 'Save Reading';
+    $('saveBtn').disabled = false;
+  }
+});
+
+function formatDate(d){
+  const dt = new Date(d+'T00:00:00');
+  return dt.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+}
+
+function totalImport(e){ return e.imp_normal + e.imp_peak + e.imp_offpeak; }
+function totalExport(e){ return e.exp_normal + e.exp_peak + e.exp_offpeak; }
+
+// ---------- History ----------
+function renderHistory(){
+  const list = $('historyList');
+  if(entries.length === 0){
+    list.innerHTML = `<div class="empty"><div class="big">📋</div><p>No readings logged yet.<br>Add your first entry from the New Entry tab.</p></div>`;
+    return;
+  }
+  const sorted = [...entries].sort((a,b)=> b.date.localeCompare(a.date));
+  list.innerHTML = sorted.map((e, idx)=>{
+    const realIdx = entries.findIndex(x=>x.id===e.id);
+    const prev = realIdx > 0 ? entries[realIdx-1] : null;
+    let deltaLine = '';
+    if(prev){
+      const dImp = totalImport(e) - totalImport(prev);
+      const dExp = totalExport(e) - totalExport(prev);
+      const net = dExp - dImp;
+      deltaLine = `<div class="entry-net ${net>=0?'credit':'debit'}">${net>=0? '+' : ''}${net.toFixed(1)} kWh net</div>`;
+    } else {
+      deltaLine = `<div class="entry-net" style="color:var(--ink-soft)">baseline</div>`;
+    }
+    return `
+    <div class="entry">
+      <div class="entry-head">
+        <div class="entry-date">${formatDate(e.date)}</div>
+        ${deltaLine}
+      </div>
+      <div class="entry-body">
+        <div class="entry-line"><span class="lbl">Import N / P / OP</span><span class="val">${e.imp_normal.toFixed(1)} / ${e.imp_peak.toFixed(1)} / ${e.imp_offpeak.toFixed(1)}</span></div>
+        <div class="entry-line"><span class="lbl">Export N / P / OP</span><span class="val">${e.exp_normal.toFixed(1)} / ${e.exp_peak.toFixed(1)} / ${e.exp_offpeak.toFixed(1)}</span></div>
+        <div class="entry-line"><span class="lbl">Net (overall)</span><span class="val">${(e.net_reading ?? 0).toFixed(1)}</span></div>
+        <div class="entry-line"><span class="lbl">Solar generation</span><span class="val">${(e.gen_reading ?? 0).toFixed(1)}</span></div>
+      </div>
+      <div class="entry-actions">
+        <button class="del" data-id="${e.id}">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('.del').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.id;
+      try{
+        await deleteEntry(id);
+        await loadEntries();
+        renderHistory();
+        showToast('Reading deleted');
+      }catch(e){
+        showToast('Could not delete — check connection');
+      }
+    });
+  });
+}
+
+// ---------- Summary ----------
+function findReadingAtOrBefore(dateStr){
+  // entries sorted ascending; find last entry with date <= dateStr
+  let candidate = null;
+  for(const e of entries){
+    if(e.date <= dateStr) candidate = e;
+    else break;
+  }
+  return candidate;
+}
+
+function findReadingAtOrAfter(dateStr){
+  for(const e of entries){
+    if(e.date >= dateStr) return e;
+  }
+  return null;
+}
+
+function initRangeDefaults(){
+  if(entries.length === 0) return;
+  if(!$('rangeStart').value) $('rangeStart').value = entries[0].date;
+  if(!$('rangeEnd').value) $('rangeEnd').value = entries[entries.length-1].date;
+}
+
+$('rangeStart').addEventListener('change', renderSummary);
+$('rangeEnd').addEventListener('change', renderSummary);
+
+async function renderSummary(){
+  const el = $('summaryContent');
+  const rangeHint = $('rangeHint');
+
+  if(entries.length < 2){
+    el.innerHTML = `<div class="empty"><div class="big">📊</div><p>Log at least two readings to see usage trends and slot-wise breakdowns.</p></div>`;
+    rangeHint.textContent = '';
+    return;
+  }
+
+  initRangeDefaults();
+  const startSel = $('rangeStart').value;
+  const endSel = $('rangeEnd').value;
+
+  const first = findReadingAtOrAfter(startSel) || entries[0];
+  const last = findReadingAtOrBefore(endSel) || entries[entries.length-1];
+
+  if(!first || !last || first.date >= last.date){
+    el.innerHTML = `<div class="empty"><div class="big">📅</div><p>No two readings fall inside this range.<br>Pick a wider date range, or log more readings.</p></div>`;
+    rangeHint.textContent = '';
+    return;
+  }
+
+  rangeHint.innerHTML = first.date === startSel && last.date === endSel
+    ? `Using readings exactly on these dates.`
+    : `Closest available readings used: <strong>${formatDate(first.date)}</strong> → <strong>${formatDate(last.date)}</strong>.`;
+
+  const slots = ['normal','peak','offpeak'];
+  const slotColors = { normal:'var(--normal)', peak:'var(--peak)', offpeak:'var(--offpeak)' };
+  const slotLabels = { normal:'Normal', peak:'Peak', offpeak:'Off-Peak' };
+
+  let impTotals = {normal:0,peak:0,offpeak:0};
+  let expTotals = {normal:0,peak:0,offpeak:0};
+  slots.forEach(s=>{
+    impTotals[s] = last['imp_'+s] - first['imp_'+s];
+    expTotals[s] = last['exp_'+s] - first['exp_'+s];
+  });
+
+  const totalImp = slots.reduce((a,s)=>a+impTotals[s],0);
+  const totalExp = slots.reduce((a,s)=>a+expTotals[s],0);
+
+  const netMeterDelta = (last.net_reading ?? 0) - (first.net_reading ?? 0);
+  const genDelta = (last.gen_reading ?? 0) - (first.gen_reading ?? 0);
+
+  // Home usage = solar generated + grid import − solar exported
+  const homeUsage = genDelta + totalImp - totalExp;
+
+  // Direct solar usage = solar production − export (solar consumed directly at home, never left the property)
+  const directSolar = Math.max(0, genDelta - totalExp);
+  const directSolarPct = genDelta > 0 ? Math.min(100, (directSolar / genDelta) * 100) : 0;
+
+  // ---- Savings (₹), using saved rates — branches on billing model ----
+  const billingModel = await loadModel();
+  const rates = await loadRates();
+  let savings = null;
+  let slabInfo = null;
+
+  if(billingModel === 'slab'){
+    // Slab model: net consumption = total import − total export.
+    // Since slabs are non-telescopic, the SAME total home usage (no-solar
+    // scenario) and the actual net consumption (with-solar scenario) can each
+    // land in a DIFFERENT band — so both need their own independent lookup.
+    const slabs = await loadSlabs();
+    function lookupBand(units){
+      if(!slabs || !slabs.bands) return null;
+      return slabs.bands.find(b=> units >= b.from && units <= b.to) || null;
+    }
+    if(slabs && slabs.bands && slabs.bands.length > 0){
+      const netConsumption = totalImp - totalExp;
+
+      if(netConsumption <= 0){
+        // Net exporter overall — nothing billable on energy charges.
+        // Hypothetical (no-solar) bill still uses full home usage for comparison.
+        const hypBand = lookupBand(homeUsage);
+        const hypotheticalBill = hypBand ? homeUsage * hypBand.rate : null;
+        const exportRevenue = Math.abs(netConsumption) * slabs.exportRate;
+        const avoidedBill = hypotheticalBill ?? 0; // entire hypothetical bill avoided
+        savings = {
+          model:'slab', netConsumption, hypBand, actualBand:null, noActualBand:false,
+          hypotheticalBill, stillOwed: 0, exportRevenue, avoidedBill,
+          totalSavings: avoidedBill + exportRevenue, noHypBand: !hypBand,
+        };
+      } else {
+        const hypBand = lookupBand(homeUsage);
+        const actualBand = lookupBand(netConsumption);
+        const hypotheticalBill = hypBand ? homeUsage * hypBand.rate : null;
+        const stillOwed = actualBand ? netConsumption * actualBand.rate : null;
+        const avoidedBill = (hypotheticalBill !== null && stillOwed !== null) ? Math.max(0, hypotheticalBill - stillOwed) : null;
+        savings = {
+          model:'slab', netConsumption, hypBand, actualBand,
+          hypotheticalBill, stillOwed: stillOwed ?? 0, exportRevenue: 0,
+          avoidedBill: avoidedBill ?? 0,
+          totalSavings: avoidedBill ?? 0,
+          noHypBand: !hypBand, noActualBand: !actualBand,
+        };
+      }
+      slabInfo = { netConsumption, allBands: slabs.bands };
+    }
+  } else {
+    // ---- TOD model (cascading offset) ----
+    // Cascading offset: Normal export nets against Normal import 1:1 first.
+    // Any LEFTOVER export then offsets Peak import, then Off-Peak import,
+    // each at its own exchange rate (multiplier = export units needed per import unit).
+    // Whatever export survives all three steps becomes export revenue at the flat rate.
+    // Whatever import survives (after being offset as far as export allows) is still billable.
+    //
+    // Avoided bill uses exact per-slot home consumption:
+    //   Normal: directSolar + normalImport (solar only produces during Normal hours)
+    //   Peak / Off-Peak: slot import only (no solar production in those periods)
+    // This gives an exact, not estimated, figure for what you'd have paid without solar.
+    if(rates && rates.export !== undefined && rates.mult_peak !== undefined){
+
+      // Per-slot home consumption (exact, given solar only produces during Normal slot)
+      const hcNormal = directSolar + impTotals.normal;
+      const hcPeak = impTotals.peak;
+      const hcOffpeak = impTotals.offpeak;
+      const avoidedBill = hcNormal * (rates.normal || 0)
+                        + hcPeak   * (rates.peak   || 0)
+                        + hcOffpeak* (rates.offpeak || 0);
+
+      let stillOwed = 0;
+      const slotBreakdown = {};
+
+      // Step 1: Normal nets 1:1
+      const normalOffset = Math.min(impTotals.normal, expTotals.normal);
+      let leftoverExport = expTotals.normal - normalOffset;
+      const normalRemainingImport = impTotals.normal - normalOffset;
+      stillOwed += normalRemainingImport * (rates.normal || 0);
+      slotBreakdown.normal = { remainingImport: normalRemainingImport };
+
+      // Step 2 & 3: leftover export cascades through Peak, then Off-Peak
+      ['peak','offpeak'].forEach(s=>{
+        const mult = rates['mult_'+s] || 1;
+        const importHere = impTotals[s];
+        const unitsCancellable = mult > 0 ? leftoverExport / mult : 0;
+        let remainingImport, exportUsed;
+        if(unitsCancellable >= importHere){
+          remainingImport = 0;
+          exportUsed = importHere * mult;
+        } else {
+          remainingImport = importHere - unitsCancellable;
+          exportUsed = leftoverExport;
+        }
+        leftoverExport = Math.max(0, leftoverExport - exportUsed);
+        stillOwed += remainingImport * (rates[s] || 0);
+        slotBreakdown[s] = { remainingImport };
+      });
+
+      // Whatever export is left after offsetting all three slots becomes revenue
+      const exportRevenue = leftoverExport * rates.export;
+
+      const totalSavings = avoidedBill + exportRevenue;
+      savings = { model:'tod', avoidedBill, exportRevenue, stillOwed, totalSavings, slotBreakdown, leftoverExport, hcNormal, hcPeak, hcOffpeak };
+    }
+  }
+
+  function barRow(title, totals, total){
+    const max = total || 1;
+    return `
+    <div class="card">
+      <p class="card-title">${title}</p>
+      ${slots.map(s=>{
+        const v = totals[s];
+        const pct = Math.max(0, (v/max)*100);
+        return `
+        <div class="slot-bar-row">
+          <div class="slot-bar-label"><span>${slotLabels[s]}</span><span class="mono">${v.toFixed(1)} kWh</span></div>
+          <div class="slot-bar-track"><div class="slot-bar-fill" style="width:${pct}%; background:${slotColors[s]}"></div></div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  el.innerHTML = `
+    <div class="card" style="background:var(--ink); border-color:var(--ink);">
+      <div style="display:flex; align-items:center; gap:18px;">
+        <div style="position:relative; width:84px; height:84px; flex-shrink:0;">
+          <div style="width:84px; height:84px; border-radius:50%; background:conic-gradient(var(--offpeak) ${directSolarPct*3.6}deg, #3A4647 0deg); display:flex; align-items:center; justify-content:center;">
+            <div style="width:64px; height:64px; border-radius:50%; background:var(--ink); display:flex; flex-direction:column; align-items:center; justify-content:center;">
+              <span style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:17px; color:var(--paper);">${directSolarPct.toFixed(0)}%</span>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1;">
+          <p class="card-title" style="color:#C8C2B4; margin-bottom:6px;">Direct Solar Usage</p>
+          <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15px; color:var(--offpeak);">${directSolar.toFixed(1)} kWh</div>
+          <p class="hint" style="color:#A39D8E; margin:4px 0 0;">of your solar production was used directly at home — the rest (${(100-directSolarPct).toFixed(0)}%) was exported.</p>
+        </div>
+      </div>
+    </div>
+
+    ${savings && savings.model === 'tod' ? `
+    <div class="card" style="background:var(--export); border-color:var(--export);">
+      <p class="card-title" style="color:#D9EDE3;">Estimated Savings This Period</p>
+      <div class="stat-val" style="color:#fff; font-size:30px;">₹${savings.totalSavings.toFixed(0)}</div>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-top:12px;">
+        <div class="entry-line" style="color:#E3F4EC;"><span>Avoided bill (vs. no-solar baseline)</span><span class="mono" style="color:#fff; font-weight:700;">₹${savings.avoidedBill.toFixed(0)}</span></div>
+        <div class="entry-line" style="color:#E3F4EC;"><span>Export revenue (leftover after cascade, ₹3.26/unit)</span><span class="mono" style="color:#fff; font-weight:700;">₹${savings.exportRevenue.toFixed(0)}</span></div>
+      </div>
+      <p class="hint" style="color:#D9EDE3; margin-top:10px;">
+        Exact per-slot home consumption × each slot's rate:<br>
+        Normal: ${savings.hcNormal.toFixed(1)} kWh × ₹${(rates.normal||0).toFixed(2)} = ₹${(savings.hcNormal*(rates.normal||0)).toFixed(0)}&nbsp;&nbsp;
+        Peak: ${savings.hcPeak.toFixed(1)} kWh × ₹${(rates.peak||0).toFixed(2)} = ₹${(savings.hcPeak*(rates.peak||0)).toFixed(0)}&nbsp;&nbsp;
+        Off-Peak: ${savings.hcOffpeak.toFixed(1)} kWh × ₹${(rates.offpeak||0).toFixed(2)} = ₹${(savings.hcOffpeak*(rates.offpeak||0)).toFixed(0)}
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-title">Predicted Bill (Import Charge)</p>
+      <div class="stat-val import">₹${savings.stillOwed.toFixed(0)}</div>
+      <p class="hint" style="margin-top:8px;">Net import still billable after cascading offset (Normal nets 1:1, leftover export then offsets Peak, then Off-Peak, at your saved exchange rates). Compare this against the import/energy charge on your actual KSEB bill.</p>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+        ${slots.map(s=>{
+          const b = savings.slotBreakdown[s];
+          const label = slotLabels[s];
+          if(b.remainingImport > 0.05){
+            return `<div class="entry-line"><span class="lbl">${label} — still owed</span><span class="val" style="color:var(--import);">${b.remainingImport.toFixed(1)} kWh × ₹${(rates[s]||0).toFixed(2)} = ₹${(b.remainingImport*(rates[s]||0)).toFixed(0)}</span></div>`;
+          } else {
+            return `<div class="entry-line"><span class="lbl">${label} — fully offset</span><span class="val" style="color:var(--export);">₹0</span></div>`;
+          }
+        }).join('')}
+        ${savings.leftoverExport > 0.05 ? `<div class="entry-line"><span class="lbl">Leftover export after offsetting all slots</span><span class="val" style="color:var(--export);">${savings.leftoverExport.toFixed(1)} kWh → revenue</span></div>` : ''}
+      </div>
+      <p class="hint" style="margin-top:10px;">Order: Normal export offsets Normal import 1:1, then any leftover offsets Peak, then Off-Peak, at the multipliers set in the Rates tab.</p>
+    </div>
+    ` : savings && savings.model === 'slab' ? `
+    <div class="card" style="background:var(--export); border-color:var(--export);">
+      <p class="card-title" style="color:#D9EDE3;">Estimated Savings This Period</p>
+      <div class="stat-val" style="color:#fff; font-size:30px;">₹${savings.totalSavings.toFixed(0)}</div>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-top:12px;">
+        <div class="entry-line" style="color:#E3F4EC;"><span>Avoided bill (vs. no-solar baseline)</span><span class="mono" style="color:#fff; font-weight:700;">₹${savings.avoidedBill.toFixed(0)}</span></div>
+        ${savings.exportRevenue > 0 ? `<div class="entry-line" style="color:#E3F4EC;"><span>Export revenue (net exporter overall)</span><span class="mono" style="color:#fff; font-weight:700;">₹${savings.exportRevenue.toFixed(0)}</span></div>` : ''}
+      </div>
+      <p class="hint" style="color:#D9EDE3; margin-top:10px;">
+        ${savings.noHypBand ? `Your hypothetical no-solar usage (${homeUsage.toFixed(1)} kWh) doesn't fall in any defined slab band — add a band that covers it in the Rates tab.` :
+          `Hypothetical no-solar bill: ${homeUsage.toFixed(1)} kWh in the ${savings.hypBand.from}–${savings.hypBand.to} band × ₹${savings.hypBand.rate.toFixed(2)} = ₹${savings.hypotheticalBill.toFixed(0)}.`}
+        Since slabs are non-telescopic, solar can drop your net consumption into a cheaper band entirely — not just reduce units within the same one.
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-title">Predicted Bill (Import Charge)</p>
+      <div class="stat-val import">₹${savings.stillOwed.toFixed(0)}</div>
+      ${savings.netConsumption <= 0 ? `
+        <p class="hint" style="margin-top:8px;">Net export overall (${Math.abs(savings.netConsumption).toFixed(1)} kWh) — no slab applies, nothing billable on energy charges this period.</p>
+      ` : savings.noActualBand ? `
+        <p class="hint" style="margin-top:8px; color:var(--import);">Net consumption of ${savings.netConsumption.toFixed(1)} kWh doesn't fall in any defined slab band — add a band that covers it in the Rates tab.</p>
+      ` : `
+        <p class="hint" style="margin-top:8px;">Net consumption ${savings.netConsumption.toFixed(1)} kWh falls in the <strong>${savings.actualBand.from}–${savings.actualBand.to}</strong> band → entire amount billed at ₹${savings.actualBand.rate.toFixed(2)}/unit (non-telescopic). Compare this against the energy charge on your actual KSEB bill.</p>
+      `}
+    </div>
+    ` : `
+    <div class="card">
+      <p class="card-title">Estimated Savings</p>
+      <p class="hint" style="margin:0;">${billingModel === 'slab' ? 'Add your slab table in the <strong>Rates</strong> tab' : 'Add your import and export rates in the <strong>Rates</strong> tab'} to see how much money solar has saved you this period.</p>
+    </div>
+    `}
+
+    <div class="card" style="background:var(--ink); border-color:var(--ink);">
+      <p class="card-title" style="color:#C8C2B4;">Home Usage (for bill verification)</p>
+      <div class="stat-val" style="color:var(--paper); font-size:28px;">${homeUsage.toFixed(1)} <span style="font-size:13px; font-weight:500;">kWh</span></div>
+      <p class="hint" style="color:#A39D8E; margin-top:8px;">Solar generated + grid import − solar exported. This is your actual home consumption for the period — compare it against what KSEB's bill implies you used.</p>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="stat-label">Total Import (from grid)</div>
+        <div class="stat-val import">${totalImp.toFixed(1)} <span style="font-size:12px;">kWh</span></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Total Export (to grid)</div>
+        <div class="stat-val export">${totalExp.toFixed(1)} <span style="font-size:12px;">kWh</span></div>
+      </div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="stat-label">Net Meter Reading (Δ)</div>
+        <div class="stat-val ${netMeterDelta>=0?'export':'import'}">${netMeterDelta>=0?'+':''}${netMeterDelta.toFixed(1)} <span style="font-size:12px;">kWh</span></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Solar Generated</div>
+        <div class="stat-val export">${genDelta.toFixed(1)} <span style="font-size:12px;">kWh</span></div>
+      </div>
+    </div>
+    <p class="hint" style="margin:0 0 16px 2px;">For bill checks, compare <strong>Total Import</strong> and <strong>Total Export</strong> per slot below against the units KSEB charges/credits in each TOD band.</p>
+    ${barRow('Import by TOD slot (what KSEB bills you for)', impTotals, totalImp)}
+    ${barRow('Export by TOD slot (what KSEB credits you for)', expTotals, totalExp)}
+  `;
+}
+
+// ---------- Init ----------
+(async function init(){
+  initClient();
+  await loadEntries();
+  prefillEntryForm();
+  renderHistory();
+})();
+</script>
+</body>
+</html>
