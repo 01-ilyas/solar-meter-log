@@ -1140,16 +1140,20 @@ $('saveBtn').addEventListener('click', async ()=>{
 });
 
 // ---------- From Bill (paste previous/current readings, create two entries) ----------
-// ---------- From Bill (6 import/export fields only; net/gen default 0; auto-labelled) ----------
+// ---------- From Bill (import/export/generation from bill; net=0; auto-labelled) ----------
 const BILL_FIELDS = ['imp_normal','imp_peak','imp_offpeak','exp_normal','exp_peak','exp_offpeak'];
+const BILL_GEN_FIELDS = ['gen_nl','gen_op','gen_pk']; // GM meter slots summed into gen_reading
 const BILL_FIELD_LABELS = {
   imp_normal: 'Import — Normal', imp_peak: 'Import — Peak', imp_offpeak: 'Import — Off-Peak',
   exp_normal: 'Export — Normal', exp_peak: 'Export — Peak', exp_offpeak: 'Export — Off-Peak',
+  gen_nl: 'Generation — NL', gen_op: 'Generation — OP', gen_pk: 'Generation — PK',
 };
 
 function buildBillReadingRows(){
   const container = $('billReadingRows');
   container.innerHTML = '';
+
+  // Import + Export rows
   BILL_FIELDS.forEach(f=>{
     const row = document.createElement('div');
     row.style.cssText = 'display:flex; align-items:center; gap:8px;';
@@ -1158,6 +1162,25 @@ function buildBillReadingRows(){
       <input type="number" inputmode="decimal" step="0.1" placeholder="Previous" style="flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:13px; padding:9px 8px; border:1px solid var(--line); border-radius:8px; background:var(--paper);" id="bill_prev_${f}">
       <span style="color:var(--ink-soft); font-size:12px;">→</span>
       <input type="number" inputmode="decimal" step="0.1" placeholder="Current" style="flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:13px; padding:9px 8px; border:1px solid var(--line); border-radius:8px; background:var(--paper);" id="bill_curr_${f}">
+    `;
+    container.appendChild(row);
+  });
+
+  // Divider + Generation (GM) section header
+  const divider = document.createElement('div');
+  divider.style.cssText = 'margin:6px 0 2px; padding-top:10px; border-top:1px solid var(--line);';
+  divider.innerHTML = `<p style="margin:0 0 8px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--export); font-family:'JetBrains Mono',monospace;">Generation Meter (GM) — NL + OP + PK summed → gen_reading</p>`;
+  container.appendChild(divider);
+
+  // Generation NL/OP/PK rows
+  BILL_GEN_FIELDS.forEach(f=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; gap:8px;';
+    row.innerHTML = `
+      <span style="flex:0 0 110px; font-size:11.5px; font-weight:600; color:var(--ink-soft);">${BILL_FIELD_LABELS[f]}</span>
+      <input type="number" inputmode="decimal" step="0.1" placeholder="Previous" style="flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:13px; padding:9px 8px; border:1px solid var(--line); border-radius:8px; background:var(--export-dim);" id="bill_prev_${f}">
+      <span style="color:var(--ink-soft); font-size:12px;">→</span>
+      <input type="number" inputmode="decimal" step="0.1" placeholder="Current" style="flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:13px; padding:9px 8px; border:1px solid var(--line); border-radius:8px; background:var(--export-dim);" id="bill_curr_${f}">
     `;
     container.appendChild(row);
   });
@@ -1181,8 +1204,10 @@ $('saveBillBtn').addEventListener('click', async ()=>{
     return;
   }
 
-  const prevVals = { net_reading: 0, gen_reading: 0 };
-  const currVals = { net_reading: 0, gen_reading: 0 };
+  const prevVals = { net_reading: 0 };
+  const currVals = { net_reading: 0 };
+
+  // Import + Export fields
   for(const f of BILL_FIELDS){
     const prevRaw = $('bill_prev_'+f).value;
     const currRaw = $('bill_curr_'+f).value;
@@ -1205,6 +1230,33 @@ $('saveBillBtn').addEventListener('click', async ()=>{
     prevVals[f] = prevN;
     currVals[f] = currN;
   }
+
+  // Generation GM fields — sum NL+OP+PK into a single gen_reading
+  let prevGenTotal = 0, currGenTotal = 0;
+  for(const f of BILL_GEN_FIELDS){
+    const prevRaw = $('bill_prev_'+f).value;
+    const currRaw = $('bill_curr_'+f).value;
+    if(prevRaw === '' || currRaw === ''){
+      errEl.textContent = `Fill in both Previous and Current for ${BILL_FIELD_LABELS[f]} (use 0 if this register shows 0).`;
+      errEl.style.display = 'block';
+      return;
+    }
+    const prevN = parseFloat(prevRaw), currN = parseFloat(currRaw);
+    if(isNaN(prevN) || isNaN(currN) || prevN < 0 || currN < 0){
+      errEl.textContent = `Invalid value for ${BILL_FIELD_LABELS[f]}.`;
+      errEl.style.display = 'block';
+      return;
+    }
+    if(currN < prevN){
+      errEl.textContent = `${BILL_FIELD_LABELS[f]}: Current (${currN}) is lower than Previous (${prevN}) — meters only count up. Check for a typo.`;
+      errEl.style.display = 'block';
+      return;
+    }
+    prevGenTotal += prevN;
+    currGenTotal += currN;
+  }
+  prevVals.gen_reading = prevGenTotal;
+  currVals.gen_reading = currGenTotal;
 
   // Auto-generate a label so these entries are identifiable in History
   const billLabel = `Bill ${formatDate(startDate)} → ${formatDate(endDate)}`;
@@ -1230,15 +1282,17 @@ $('saveBillBtn').addEventListener('click', async ()=>{
     }
     await loadEntries();
 
+    const genDelta = currGenTotal - prevGenTotal;
     const skipped = [startExists && 'previous', endExists && 'current'].filter(Boolean).join(' and ');
     $('billStatus').textContent = skipped
       ? `✓ Created the missing entry (${skipped} date already existed and was left untouched).`
-      : `✓ Both entries created and labelled "${billLabel}".`;
+      : `✓ Both entries created — generation logged as ${currGenTotal} (${genDelta} units this period).`;
     $('billStatus').style.color = 'var(--export)';
     showToast('Entries created from bill');
 
     // Clear the form for the next bill
     BILL_FIELDS.forEach(f=>{ $('bill_prev_'+f).value = ''; $('bill_curr_'+f).value = ''; });
+    BILL_GEN_FIELDS.forEach(f=>{ $('bill_prev_'+f).value = ''; $('bill_curr_'+f).value = ''; });
     $('billDateStart').value = '';
     $('billDateEnd').value = '';
   }catch(e){
