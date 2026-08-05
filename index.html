@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -423,7 +422,7 @@
       <div class="reg-row" style="margin-top:14px;">
         <div class="reg-cell" style="background:var(--paper-dim);">
           <div class="reg-cell-label">Fixed charge</div>
-          <input type="number" inputmode="decimal" step="0.01" placeholder="160.00" id="fixed_charge">
+          <input type="number" inputmode="decimal" step="0.01" placeholder="220.00" id="fixed_charge">
         </div>
         <div class="reg-cell" style="background:var(--paper-dim);">
           <div class="reg-cell-label">Meter rent</div>
@@ -656,7 +655,7 @@ async function populateFixedChargesForm(){
     $('fixedStatus').style.color = 'var(--export)';
   } else {
     $('fixedStatus').textContent = '';
-    if($('fixed_charge').value === '') $('fixed_charge').value = '160.00';
+    if($('fixed_charge').value === '') $('fixed_charge').value = '220.00';
     if($('meter_rent').value === '') $('meter_rent').value = '30.00';
   }
 }
@@ -986,6 +985,7 @@ async function loadEntries(){
     exp_offpeak: Number(r.exp_offpeak),
     net_reading: Number(r.net_reading),
     gen_reading: Number(r.gen_reading),
+    label: r.label || null,
   }));
 }
 
@@ -1007,6 +1007,7 @@ async function insertEntry(entry){
     exp_offpeak: entry.exp_offpeak,
     net_reading: entry.net_reading,
     gen_reading: entry.gen_reading,
+    label: entry.label || null,
   }).select();
   if(error) throw error;
   return data[0];
@@ -1139,16 +1140,17 @@ $('saveBtn').addEventListener('click', async ()=>{
 });
 
 // ---------- From Bill (paste previous/current readings, create two entries) ----------
+// ---------- From Bill (6 import/export fields only; net/gen default 0; auto-labelled) ----------
+const BILL_FIELDS = ['imp_normal','imp_peak','imp_offpeak','exp_normal','exp_peak','exp_offpeak'];
 const BILL_FIELD_LABELS = {
   imp_normal: 'Import — Normal', imp_peak: 'Import — Peak', imp_offpeak: 'Import — Off-Peak',
   exp_normal: 'Export — Normal', exp_peak: 'Export — Peak', exp_offpeak: 'Export — Off-Peak',
-  net_reading: 'Net Meter Reading', gen_reading: 'Solar Generation',
 };
 
 function buildBillReadingRows(){
   const container = $('billReadingRows');
   container.innerHTML = '';
-  ENTRY_FIELDS.forEach(f=>{
+  BILL_FIELDS.forEach(f=>{
     const row = document.createElement('div');
     row.style.cssText = 'display:flex; align-items:center; gap:8px;';
     row.innerHTML = `
@@ -1179,8 +1181,9 @@ $('saveBillBtn').addEventListener('click', async ()=>{
     return;
   }
 
-  const prevVals = {}, currVals = {};
-  for(const f of ENTRY_FIELDS){
+  const prevVals = { net_reading: 0, gen_reading: 0 };
+  const currVals = { net_reading: 0, gen_reading: 0 };
+  for(const f of BILL_FIELDS){
     const prevRaw = $('bill_prev_'+f).value;
     const currRaw = $('bill_curr_'+f).value;
     if(prevRaw === '' || currRaw === ''){
@@ -1189,20 +1192,22 @@ $('saveBillBtn').addEventListener('click', async ()=>{
       return;
     }
     const prevN = parseFloat(prevRaw), currN = parseFloat(currRaw);
-    const allowNegative = (f === 'net_reading');
-    if(isNaN(prevN) || isNaN(currN) || (!allowNegative && (prevN < 0 || currN < 0))){
+    if(isNaN(prevN) || isNaN(currN) || prevN < 0 || currN < 0){
       errEl.textContent = `Invalid value for ${BILL_FIELD_LABELS[f]}.`;
       errEl.style.display = 'block';
       return;
     }
-    if(!allowNegative && currN < prevN){
-      errEl.textContent = `${BILL_FIELD_LABELS[f]}: Current reading is lower than Previous — meters only count up. Check for a typo.`;
+    if(currN < prevN){
+      errEl.textContent = `${BILL_FIELD_LABELS[f]}: Current (${currN}) is lower than Previous (${prevN}) — meters only count up. Check for a typo.`;
       errEl.style.display = 'block';
       return;
     }
     prevVals[f] = prevN;
     currVals[f] = currN;
   }
+
+  // Auto-generate a label so these entries are identifiable in History
+  const billLabel = `Bill ${formatDate(startDate)} → ${formatDate(endDate)}`;
 
   await loadEntries();
   const startExists = entries.some(e=> e.date === startDate);
@@ -1218,22 +1223,22 @@ $('saveBillBtn').addEventListener('click', async ()=>{
     $('saveBillBtn').disabled = true;
 
     if(!startExists){
-      await insertEntry({ date: startDate, ...prevVals });
+      await insertEntry({ date: startDate, label: billLabel, ...prevVals });
     }
     if(!endExists){
-      await insertEntry({ date: endDate, ...currVals });
+      await insertEntry({ date: endDate, label: billLabel, ...currVals });
     }
     await loadEntries();
 
     const skipped = [startExists && 'previous', endExists && 'current'].filter(Boolean).join(' and ');
     $('billStatus').textContent = skipped
       ? `✓ Created the missing entry (${skipped} date already existed and was left untouched).`
-      : '✓ Both entries created from this bill.';
+      : `✓ Both entries created and labelled "${billLabel}".`;
     $('billStatus').style.color = 'var(--export)';
     showToast('Entries created from bill');
 
     // Clear the form for the next bill
-    ENTRY_FIELDS.forEach(f=>{ $('bill_prev_'+f).value = ''; $('bill_curr_'+f).value = ''; });
+    BILL_FIELDS.forEach(f=>{ $('bill_prev_'+f).value = ''; $('bill_curr_'+f).value = ''; });
     $('billDateStart').value = '';
     $('billDateEnd').value = '';
   }catch(e){
@@ -1274,9 +1279,12 @@ function renderHistory(){
       deltaLine = `<div class="entry-net" style="color:var(--ink-soft)">baseline</div>`;
     }
     return `
-    <div class="entry">
+    <div class="entry" style="${e.label ? 'border-color:var(--peak); border-width:1.5px;' : ''}">
       <div class="entry-head">
-        <div class="entry-date">${formatDate(e.date)}</div>
+        <div>
+          <div class="entry-date">${formatDate(e.date)}</div>
+          ${e.label ? `<div style="font-size:10.5px; font-weight:700; color:var(--peak); margin-top:3px; font-family:'JetBrains Mono',monospace;">📄 ${e.label}</div>` : ''}
+        </div>
         ${deltaLine}
       </div>
       <div class="entry-body">
